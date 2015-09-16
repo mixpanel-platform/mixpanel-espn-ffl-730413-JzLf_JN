@@ -37,6 +37,7 @@
         firstColHeader: 'Url'
       });
       var numberOfUrls = 8; // How many Funnel queries are run
+      NProgress.configure({ showSpinner: false });
       $.whenAll = function(arr) { return $.when.apply($, arr); }; // For resolving an arbitrary number of promises
 
       // Invoke when all Funnel API calls resolve
@@ -44,6 +45,7 @@
         console.log(promises);
         
         $.whenAll(promises).done(function() {
+          NProgress.done();
           var mergedData = mergeRawFunnelData.apply(this, arguments);
           eventTable.MPTable('setData', formatTableData(mergedData));
         });
@@ -114,6 +116,7 @@
               };
               promises.push(MP.api.funnel(eventObject, eventName, params));
             });
+            NProgress.start();
             resolvePromises(promises);
           };
 
