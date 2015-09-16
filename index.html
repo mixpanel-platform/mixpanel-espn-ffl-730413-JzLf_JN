@@ -18,7 +18,7 @@
     </div>
     <div id="table"></div>
     <script>
-    // Initialize UI elements
+      // Initialize UI elements and global variables
       var eventSelect = $('#eventSelect').MPEventSelect();
       var propSelect  = $('#propSelect').MPPropertySelect();
       var dateSelect  = $('#dateSelect').MPDatepicker();
@@ -34,8 +34,58 @@
         showPercentages: false,
         firstColHeader: 'Url'
       });
+      var numberOfUrls = 8; // How many Funnel queries are run
+      $.whenAll = function(arr) { return $.when.apply($, arr); }; // For resolving an arbitrary number of promises
 
-      // console.log(conversionSelect.val());
+      // Invoke when all Funnel API calls resolve
+      var resolvePromises = function(promises) {
+        console.log(promises);
+        
+        $.whenAll(promises).done(function() {
+          var mergedData = mergeRawFunnelData.apply(this, arguments);
+          eventTable.MPTable('setData', formatTableData(mergedData));
+        });
+      };
+
+      // Takes the response of each Funnel API call and merges into a single object
+      var mergeRawFunnelData = function() {
+        var mergedData = {};
+        for (var i = 0; i < arguments.length; i++) {
+          console.log(arguments[i])
+          for (var url in arguments[i]) {
+            if (url !== '$overall') { mergedData[url] = arguments[i][url]; }
+          }
+        }
+        console.log(mergedData);
+        return mergedData;
+      };
+      
+      /*
+       * Takes the data returned from a funnel query:
+       * Top Level: List of segments
+       * L1: Dict of dates
+       * L2: Object with integer keys (0, 1, 2, ...)
+       * L3: avg_time (ms), count (int), event (str), goal (str), overall_conv_ratio (float), step_conv_ratio (float)
+       * 
+       * and converts it to the format needed for an MPTable
+       */
+      var formatTableData = function(data) {
+        var retVal = {}
+        for (var segment in data) {
+          retVal[segment] = {};
+          for (var date in data[segment]) {
+            var steps = _.keys(data[segment][date]);
+            for (var index in steps) {
+              step = data[segment][date][index]
+              var eventName = step['event'];
+              retVal[segment][eventName] = step['count'];
+            }
+          }
+        }
+        console.log(retVal);
+        return retVal;
+      }
+
       // Main query logic
       var runQuery = function() {
         var eventName = eventSelect.MPEventSelect('value'),
@@ -50,54 +100,29 @@
             interval: 30,
             segment: 'Url'
           }
-          var promises = [];
           
-          // Is there a way to only filter on a specific funnel step?
-          // MP.api.propertyValues('Page View', 'Url', {limit: 150}).done(function(results) {
-          //   _.each(results.values(), function(url) {
-          //     params.where = 'properties["Url"] == "' + url + '"';
-          //     console.log(params.where);
-          //     promises.push(MP.api.funnel('Page View', eventName));
-          //   });
-          // });
+          // Create promises for every Funnels API call 
+          var promises = [];
+          var createPromises = function(properties) {
+            console.log('createPromises');
+            _.each(properties.values(), function(url) {
+              var eventObject = {
+                event: 'Page View',
+                selector: 'properties["Url"] == "' + url + '"'
+              };
+              promises.push(MP.api.funnel(eventObject, eventName, params));
+            });
+            resolvePromises(promises);
+          };
 
-          // Promise.all(promises).then(function(promiseArray) {
-          //   _.each(promiseArray, function(data) { 
-          //     console.log(data);
-          //   });
-          // });
-
-          MP.api.funnel('Page View', eventName, params).done(function(results) {
-            // console.log(results);
-            // console.log(formatChartData(results));
-            window.data = results;
-            eventTable.MPTable('setData', formatChartData(results));
-          });
+          // Kick off the query
+          MP.api.propertyValues('Page View', 'Url', {limit: numberOfUrls}).done(createPromises); 
         }
       };
 
-      /*
-       * Takes the data returned from a funnel query:
-       * Top Level: List of segments
-       * L1: Dict of dates
-       * L2: Object with integer keys (0, 1, 2, ...)
-       * L3: avg_time (ms), count (int), event (str), goal (str), overall_conv_ratio (float), step_conv_ratio (float)
+      /** 
+       * Event listeners to trigger queries
        */
-      var formatChartData = function(data) {
-        var retVal = {}
-        for (var segment in data) {
-          retVal[segment] = {};
-          for (var date in data[segment]) {
-            for (var step in data[segment][date]) {
-              var eventName = data[segment][date][step]['event'];
-              retVal[segment][eventName] = data[segment][date][step]['count'];
-            }
-          }
-        }
-        return retVal;
-      }
-
-      // Event listeners to trigger queries
       eventSelect.on('change', function(e, eventName) {
         // propSelect.MPPropertySelect('setEvent', eventName);
         // $("#by").show();
